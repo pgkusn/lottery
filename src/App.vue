@@ -2,16 +2,13 @@
     <div class="ball">
         {{ currentNum }}
     </div>
-    <button @click="start">{{ drawing ? '停止' : '開始' }}</button>
+    <button @click="start">{{ drawing ? '重新開始' : '開始' }}</button>
     <div class="list">
-        <div
-            :class="['ball', { spacial: index === maxBall - 1 }]"
-            v-for="(ball, index) in ballList"
-            :key="ball">
-            {{ ball }}
+        <div :class="['ball', { spacial: ball.index === maxBall }]" v-for="ball in ballList" :key="ball.num">
+            {{ ball.num }}
         </div>
     </div>
-    <button v-if="ballList.length" @click="toggleSortRule">依照開獎順序 / 依照編號排序</button>
+    <button v-if="ballList.length === maxBall" @click="toggleSortRule">依照開獎順序 / 依照編號排序</button>
 </template>
 
 <script>
@@ -21,58 +18,40 @@ export default {
     name: 'App',
     setup () {
         const maxNum = 49; // 開獎號碼 1 ~ n
-        const maxBall = 7; // 開獎總球數
+        const maxBall = 7; // 總球數
         const drawing = ref(false); // 是否正在開獎
-        const currentBall = ref(0); // 目前開獎到第幾顆球
-        const selectedNum = []; // 全部的開獎號碼
-        const showBalls = ref([]); // 已顯示的球
+        const numbers = ref([]);
+        const selectedNum = computed(() => numbers.value.filter(item => item.selected));
+        const unselectedNum = computed(() => numbers.value.filter(item => !item.selected));
 
-        let initTimer;
-        const init = () => {
-            initTimer = setInterval(setCurrentNum, 500);
+        let timer;
+        const setTimer = () => {
+            timer = setInterval(setCurrentNum, 500);
         };
 
         const start = () => {
             if (!drawing.value) {
-                clearInterval(initTimer);
+                clearInterval(timer);
                 drawing.value = true;
                 draw();
             }
-            else if (drawing.value && confirm('確定停止?')) {
+            else if (drawing.value && confirm('確定重新開始?')) {
                 drawing.value = false;
                 currentNum.value = 1;
-                currentBall.value = 0;
-                selectedNum.length = 0;
-                showBalls.value.length = 0;
-                init();
+                numbers.value.forEach(item => (item.selected = false));
+                setTimer();
             }
         };
 
         const draw = () => {
-            // 產生所有數字
-            const numbers = [];
-            for (let n = 1; n <= maxNum; n++) {
-                numbers.push(n);
-            }
-
-            // 產生所有數字中隨機選中的數字
-            for (let i = 0; i < maxBall; i++) {
-                const index = Math.floor(Math.random() * numbers.length);
-                selectedNum.push(numbers.splice(index, 1)[0]);
-            }
-
-            generateBall();
-        };
-
-        // 開獎中動畫
-        const generateBall = () => {
+            // 開獎中動畫
             let isShowBall = false;
             let delay = 10;
-            const generating = () => {
+            const generateBall = () => {
                 if (!drawing.value || isShowBall) return;
 
                 setCurrentNum();
-                setTimeout(generating, delay *= 1.1);
+                setTimeout(generateBall, delay *= 1.1);
 
                 // 停止動畫並顯示球
                 if (delay > 500) {
@@ -80,19 +59,28 @@ export default {
                     showBall();
                 }
             };
-            generating();
+            generateBall();
         };
 
         const showBall = () => {
-            showBalls.value.push(selectedNum[currentBall.value]);
+            // 抽號碼
+            unselectedNum.value.forEach(i => {
+                if (i.num === currentNum.value) {
+                    numbers.value.forEach(j => {
+                        if (j.num === i.num) {
+                            j.selected = true;
+                            j.index = selectedNum.value.length;
+                        }
+                    });
+                }
+            });
 
-            if (showBalls.value.length === maxBall) return;
+            if (selectedNum.value.length === maxBall) return;
 
-            // 顯示後延遲一秒再產生下一個
+            // 延遲一秒再抽下一個
             setTimeout(() => {
                 if (!drawing.value) return;
-                currentBall.value++;
-                generateBall();
+                draw();
             }, 1000);
         };
 
@@ -103,16 +91,17 @@ export default {
         };
 
         // 排序
-        const sortRule = ref(0); // 0:開獎順序 1:編號排序 (特別號固定最後)
+        const sortRule = ref(0); // 0:開獎順序(預設) 1:編號排序(特別號固定最後)
         const ballList = computed(() => {
+            const _selectedNum = JSON.parse(JSON.stringify(selectedNum.value));
             if (sortRule.value === 0) {
-                return showBalls.value;
+                return _selectedNum.sort((a, b) => a.index - b.index);
             }
             else {
-                const _showBalls = showBalls.value.slice(0, maxBall - 1);
-                _showBalls.sort((a, b) => a - b);
-                _showBalls.push(showBalls.value[maxBall - 1]);
-                return _showBalls;
+                const newSelectNum = _selectedNum.slice(0, maxBall - 1);
+                newSelectNum.sort((a, b) => a.num - b.num);
+                newSelectNum.push(_selectedNum[maxBall - 1]);
+                return newSelectNum;
             }
         });
         const toggleSortRule = () => {
@@ -120,14 +109,20 @@ export default {
         };
 
         onMounted(() => {
-            init();
+            // 產生所有數字
+            for (let n = 1; n <= maxNum; n++) {
+                numbers.value.push({
+                    num: n,
+                    selected: false
+                });
+            }
+            setTimer();
         });
 
         return {
             currentNum,
             start,
             drawing,
-            showBalls,
             maxBall,
             ballList,
             toggleSortRule
